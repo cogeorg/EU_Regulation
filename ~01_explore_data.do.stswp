@@ -1,0 +1,3 @@
+cd ~/Dropbox/Papers/00_Ideas/EU_Regulation/
+
+insheet using "metadata.csv", delimiter(",") names clear

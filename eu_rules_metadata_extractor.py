@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Script to extract metadata of EU legislative documents from the CELLAR database
 SPARQL endpoint URL to access CELLAR is here: http://publications.europa.eu/webapi/rdf/sparql
@@ -17,6 +19,7 @@ from bs4 import BeautifulSoup
 import argparse
 import sys
 from os.path import exists
+from tqdm import tqdm  # <-- added
 
 argParser = argparse.ArgumentParser(description='EURLEX PDF and HTML legislative documents metadata downloader')
 required = argParser.add_argument_group('required arguments')
@@ -40,7 +43,10 @@ data = list(csv.reader(file, delimiter=","))
 file.close()
 celex_nums = []
 for item in data:
-    celex_nums.append(item[0])
+    try:
+        celex_nums.append(item[0])
+    except IndexError:
+        print("ERROR: " + str(item) )
 
 # Todo: if possible, extract the number of times that a file has been discussed in the Council or its preparatory bodies (under Procedure tab)
 # Todo: if possible, extract the responsible EP committee
@@ -144,12 +150,9 @@ def get_string_label(sparql, uri, pred, celex_num):
         # not the most fine-grained topic of the legislation
         dc_uri_parts = uri.split('/')
         new_dc_uri_parts = dc_uri_parts[:-1]
-        # print('new_dc_uri_parts: ', new_dc_uri_parts)
         dc = dc_uri_parts[-1][:2] # most general part of directory code
-        # print('dc: ', dc)
         new_dc_uri_parts.append(dc)
         uri = '/'.join(new_dc_uri_parts)
-        # print('uri: ', uri)
     
     sparql.setReturnFormat(JSON) # return JSON format response
     query = """ 
@@ -170,7 +173,6 @@ def get_string_label(sparql, uri, pred, celex_num):
     
     # return query results
     val = results["results"]["bindings"][0]["label"]["value"]
-    # print('val: ', val)
     return val
     
 def get_metadata_for_legal_acts(celex_nums, endpoint_url):
@@ -211,60 +213,61 @@ def get_metadata_for_legal_acts(celex_nums, endpoint_url):
     processed_celex = []
     metadata_header_row = ['celex', 'author', 'responsible_body', 'form', 'title', 'addressee', 'date_adoption', 'date_in_force', 'date_end_validity', 'directory_code', 'procedure_code', 'eurovoc', 'subject_matters']
     metadata.append(metadata_header_row)
-    idx = 1
-    num_celexes = len(celex_nums)
-    for celex_num in celex_nums:
-        if (celex_num not in processed_celex) and (celex_num not in ['celex']):
-            print(idx, '/', num_celexes)
-            current_row = {
-                    "celex"                 : [],
-                    "author"                : [],
-                    "responsible_body"      : [],
-                    "form"                  : [],
-                    "title"                 : [],
-                    "addressee"             : [],
-                    "date_adoption"         : [],
-                    "date_in_force"         : [],
-                    "date_end_validity"     : [],
-                    "directory_code"        : [],
-                    "procedure_code"        : [],
-                    "eurovoc"               : [],
-                    "subject_matters"       : [] 
-            }
-            
-            idx += 1
-            metadata_query = metadata_query_base.format(CDM_PREFIX, celex_num)
-            query_result = execute_sparql_query_and_return_results(sparql, metadata_query)
-            if (query_result != -1):
-                g = Graph().parse(data=str(query_result), format='turtle')
-                for s, p, o in g.triples((None, None, None)):
-                    if str(p) in list(property_mapping.values()):
-                        keys = [k for k, v in property_mapping.items() if v == str(p)]
-                        predicate = keys[0]
 
-                        if isinstance(o, Literal):
-                            current_row[predicate].append(str(o))
+    num_celexes = len(celex_nums)
+    # --- tqdm progress bar (minimal change) ---
+    with tqdm(total=num_celexes, desc="CELEX", unit="doc", dynamic_ncols=True) as pbar:
+        for celex_num in celex_nums:
+            if (celex_num not in processed_celex) and (celex_num not in ['celex']):
+                current_row = {
+                        "celex"                 : [],
+                        "author"                : [],
+                        "responsible_body"      : [],
+                        "form"                  : [],
+                        "title"                 : [],
+                        "addressee"             : [],
+                        "date_adoption"         : [],
+                        "date_in_force"         : [],
+                        "date_end_validity"     : [],
+                        "directory_code"        : [],
+                        "procedure_code"        : [],
+                        "eurovoc"               : [],
+                        "subject_matters"       : [] 
+                }
+                metadata_query = metadata_query_base.format(CDM_PREFIX, celex_num)
+                query_result = execute_sparql_query_and_return_results(sparql, metadata_query)
+                if (query_result != -1):
+                    g = Graph().parse(data=str(query_result), format='turtle')
+                    for s, p, o in g.triples((None, None, None)):
+                        if str(p) in list(property_mapping.values()):
+                            keys = [k for k, v in property_mapping.items() if v == str(p)]
+                            predicate = keys[0]
+
+                            if isinstance(o, Literal):
+                                current_row[predicate].append(str(o))
+                            else:
+                                current_row[predicate].append(get_string_label(sparql, str(o), predicate, celex_num))
+                                    
+                    for item in current_row:
+                        if len(current_row[item]) == 0:
+                            current_row[item] = ''
+                        elif len(current_row[item]) == 1:
+                            current_row[item] = current_row[item][0]
                         else:
-                            current_row[predicate].append(get_string_label(sparql, str(o), predicate, celex_num))
-                                
-                for item in current_row:
-                    if len(current_row[item]) == 0:
-                        current_row[item] = ''
-                    elif len(current_row[item]) == 1:
-                        current_row[item] = current_row[item][0]
-                    else:
-                        current_row[item] = ' | '.join(list(set(current_row[item])))
+                            current_row[item] = ' | '.join(list(set(current_row[item])))
+                            
+                    # If the title summary is missing then try to scrape the title
+                    # from the EURLEX website
+                    if (len(current_row['title']) == 0):
+                        current_row['title'] = get_title(celex_num)
                         
-                # If the title summary is missing then try to scrape the title
-                # from the EURLEX website
-                if (len(current_row['title']) == 0):
-                    current_row['title'] = get_title(celex_num)
-                    
-                new_current_row = []
-                for field in current_row:
-                    new_current_row.append(current_row[field])
-                        
-                metadata.append(new_current_row)
+                    new_current_row = []
+                    for field in current_row:
+                        new_current_row.append(current_row[field])
+                            
+                    metadata.append(new_current_row)
+            # advance tqdm for every input line (incl. skipped header)
+            pbar.update(1)
             
     return metadata
     
@@ -287,5 +290,3 @@ file = open(OUT_METADATA_FILE, 'w', newline ='', encoding='utf-8')
 with file:   
     write = csv.writer(file)
     write.writerows(metadata)
-
-

@@ -1,8 +1,17 @@
+# Core
 sparqlwrapper==2.0.0
-requests==2.30.0
+requests>=2.31,<2.33
 beautifulsoup4==4.12.2
-pandas==2.0.1
-numpy==1.26.4
 html5lib==1.1
-html5
-lxml
+lxml>=5.1
+rdflib>=7.0,<8
+tqdm
+
+# Numpy/Pandas with Python-conditional pins
+# For Py ≥ 3.12 (incl. 3.13) use newer lines:
+numpy>=2.1; python_version >= "3.12"
+pandas>=2.2.3; python_version >= "3.12"
+# For Py < 3.12 keep your original pins:
+numpy==1.26.4; python_version < "3.12"
+pandas==2.0.1; python_version < "3.12"
+
