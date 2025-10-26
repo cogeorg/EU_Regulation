@@ -17,18 +17,18 @@ for i in {0..7}; do
   i_padded=$(printf "%02d" $i)
 
   # Define the input and output filenames for the current iteration
-  INPUT_FILE="${WORK_DIR}/celex_list-${i_padded}"
-  OUTPUT_FILE="${WORK_DIR}/metadata-${i_padded}.csv"
+  INPUT_FILE="${WORK_DIR}/output/celex_list-${i_padded}"
+  OUTPUT_FILE="${WORK_DIR}/output/metadata-${i_padded}.csv"
 
   # Check if the input file actually exists before trying to process it
   if [ -f "$INPUT_FILE" ]; then
     echo "Processing ${INPUT_FILE} -> ${OUTPUT_FILE}"
     # Run the python script in the background using '&'
     # This allows the loop to continue and start the next process immediately.
-    python "$PYTHON_SCRIPT" --input "$INPUT_FILE" --output "$OUTPUT_FILE" &
+    python "$PYTHON_SCRIPT" --input "$INPUT_FILE" --output "$OUTPUT_FILE"
   else
     echo "Warning: Input file ${INPUT_FILE} not found. Skipping."
   fi
 done
 
-cd ${WORK_DIR}/ ; rm metadata.csv 2>/dev/null ; cat metadata-*.csv >> metadata.csv ; cd -
+cd ${WORK_DIR}/output/ ; rm metadata.csv 2>/dev/null ; cat metadata-*.csv >> metadata.csv ; cd -

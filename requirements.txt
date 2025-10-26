@@ -6,6 +6,7 @@ html5lib==1.1
 lxml>=5.1
 rdflib>=7.0,<8
 tqdm
+textstat
 
 # Numpy/Pandas with Python-conditional pins
 # For Py ≥ 3.12 (incl. 3.13) use newer lines:
