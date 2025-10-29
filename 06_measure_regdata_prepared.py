@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 
 """
-Analyzes HTML files corresponding to a given CELEX list to count the
-occurrence of specific regulatory words ("shall", "must", "may not",
-"required", "prohibited").
-
-This script requires the 'beautifulsoup4' library.
-Install it using: pip install beautifulsoup4
+Analyzes plain text (.txt) files corresponding to a given CELEX list 
+to count the occurrence of specific regulatory words ("shall", "must", 
+"may not", "required", "prohibited").
 """
 
 import argparse
@@ -14,7 +11,6 @@ import csv
 import os
 import re
 import sys
-from bs4 import BeautifulSoup
 from tqdm import tqdm
 
 def load_celex_list(celex_file):
@@ -57,21 +53,18 @@ def load_celex_list(celex_file):
     print(f"Loaded {len(celex_to_process)} CELEX identifiers marked for processing.")
     return celex_to_process
 
-def analyze_html_file(file_path, regex_patterns):
+def analyze_txt_file(file_path, regex_patterns):
     """
-    Analyzes a single HTML file.
+    Analyzes a single plain text (.txt) file.
     
     Returns a tuple:
     (total_word_count, counts_dict, total_obligation_count, error_message)
     """
     try:
         with open(file_path, mode='r', encoding='utf-8') as f:
-            content = f.read()
+            # Read the entire file content as clean text
+            clean_text = f.read()
             
-        # Use BeautifulSoup to strip HTML tags
-        soup = BeautifulSoup(content, 'html.parser')
-        clean_text = soup.get_text()
-        
         # 1. Get total word count
         total_word_count = len(clean_text.split())
         
@@ -96,7 +89,7 @@ def main():
     Main function to parse arguments and coordinate processing.
     """
     parser = argparse.ArgumentParser(
-        description="Measure word counts in prepared regulatory data."
+        description="Measure word counts in prepared regulatory data from .txt files."
     )
     parser.add_argument(
         '--celex_list',
@@ -104,9 +97,9 @@ def main():
         help="Input CSV file with celex, year_passed, year_enacted, is_finance, is_agriculture."
     )
     parser.add_argument(
-        '--html_directory',
+        '--txt_directory',
         required=True,
-        help="Directory containing HTML files named [celex].html."
+        help="Directory containing TXT files named [celex].txt."
     )
     parser.add_argument(
         '--output_file',
@@ -138,18 +131,51 @@ def main():
         print("No CELEX identifiers to process. Exiting.")
         return
 
-    # 3. Process each HTML file
+    # --- New File Matching Report ---
+    print(f"\nAnalyzing file match between {args.celex_list} and {args.txt_directory}...")
+    celex_set_from_list = {info['celex'] for info in celex_list}
+    
+    try:
+        txt_files_in_dir = [
+            f for f in os.listdir(args.txt_directory) 
+            if f.endswith('.txt') and os.path.isfile(os.path.join(args.txt_directory, f))
+        ]
+        celex_set_from_dir = {os.path.splitext(f)[0] for f in txt_files_in_dir}
+    except FileNotFoundError:
+        print(f"Error: TXT directory not found at {args.txt_directory}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error reading TXT directory: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    matched_celex_count = len(celex_set_from_list.intersection(celex_set_from_dir))
+    list_not_found_in_dir_count = len(celex_set_from_list.difference(celex_set_from_dir))
+    dir_not_found_in_list_count = len(celex_set_from_dir.difference(celex_set_from_list))
+
+    print("\n--- File Matching Report ---")
+    print(f"  - CELEX IDs in list:          {len(celex_set_from_list)}")
+    print(f"  - .txt files in directory:    {len(celex_set_from_dir)}")
+    print(f"  ------------------------------")
+    print(f"  - Matched (in list & dir):    {matched_celex_count}")
+    print(f"  - In list, NOT in dir (.txt): {list_not_found_in_dir_count}")
+    print(f"  - In dir (.txt), NOT in list: {dir_not_found_in_list_count}")
+    print("------------------------------")
+    # --- End of New Report ---
+
+
+    # 3. Process each TXT file based on the celex_list
     output_data = []
     files_not_found = 0
     files_processed = 0
     
-    print(f"\nProcessing {len(celex_list)} HTML files from {args.html_directory}...")
+    print(f"\nProcessing {len(celex_list)} entries from CELEX list...")
     
-    for celex_info in tqdm(celex_list, desc="Analyzing HTML", unit="file"):
+    for celex_info in tqdm(celex_list, desc="Analyzing TXT", unit="file"):
         celex = celex_info['celex']
-        file_path = os.path.join(args.html_directory, f"{celex}.html")
+        # Look for .txt files
+        file_path = os.path.join(args.txt_directory, f"{celex}.txt")
         
-        total_words, counts, total_obligation, error = analyze_html_file(
+        total_words, counts, total_obligation, error = analyze_txt_file(
             file_path, regex_patterns
         )
         
@@ -176,9 +202,10 @@ def main():
         }
         output_data.append(output_row)
         
-    print(f"Processing complete. {files_processed} files analyzed.")
+    print(f"\nProcessing complete. {files_processed} files analyzed.")
     if files_not_found > 0:
-        print(f"Warning: {files_not_found} files listed in celex_list were not found in the HTML directory.", file=sys.stderr)
+        # This count should match 'In list, NOT in dir (.txt)' from the report
+        print(f"Warning: {files_not_found} files listed in celex_list were not found in the TXT directory.", file=sys.stderr)
 
     # 4. Write output file
     print(f"\nWriting results to {args.output_file}...")
@@ -194,7 +221,7 @@ def main():
             'count_must', 
             'count_may_not', 
             'count_required', 
-            'count_prohibited', # <-- This was the typo, changed from 'prohibited'
+            'count_prohibited',
             'total_obligation_word_count'
         ]
         
@@ -209,13 +236,5 @@ def main():
         print(f"Error writing output file: {e}", file=sys.stderr)
         
 if __name__ == "__main__":
-    # Check for bs4 import
-    try:
-        import bs4
-    except ImportError:
-        print("Error: The 'beautifulsoup4' library is required but not installed.", file=sys.stderr)
-        print("Please install it using: pip install beautifulsoup4", file=sys.stderr)
-        sys.exit(1)
-        
+    # Removed the check for BeautifulSoup, as it's no longer needed
     main()
-
