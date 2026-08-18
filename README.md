@@ -2,6 +2,119 @@
 
 Data extraction scripts for the [Nature of EU Rules project](https://research-software-directory.org/projects/the-nature-of-eu-rules-strict-and-detailed-or-lacking-bite).
 
+## Full legal-text repository (EU / Bund / Länder)
+
+`full/` contains crawlers that build a broad repository of legal texts for the EU,
+the German federal level (Bund), and the 16 German states (Länder), currently covering
+**Verfassungen** (constitutions/treaties) and the source portals used for
+**Stammgesetze/Basisrechtsakte**. The portal inventories are deliberately inclusive and
+also contain ordinances, notices, administrative rules, amendment/component pages, and
+other source-specific records; their counts are not pure statute counts. The source
+overview, shareable dashboard, operational logs, and other administrative material live
+in the co-author Dropbox folder. Raw downloads and their authoritative manifests live in
+a separate data Dropbox folder; large generated corpora are not kept in Git.
+
+| Material | Default location |
+|---|---|
+| Crawler code, tests, and documentation | this Git repository |
+| Raw legal texts and authoritative manifests | `~/Dropbox/Projects/EU_Regulation/Data/` |
+| Minimal shareable dashboard | `~/Dropbox/Papers/00_Ideas/EU_Regulation/dashboard/` |
+| Source overview and work log | `~/Dropbox/Papers/00_Ideas/EU_Regulation/administration/` |
+| Crawler logs | `~/Dropbox/Papers/00_Ideas/EU_Regulation/logs/crawlers/` |
+| Legacy raw, processed, and derived data | `~/Dropbox/Projects/EU_Regulation/Data/legacy/regulation_measurement/` |
+
+The locations are portable: set `EU_REGULATION_DATA_DIR`,
+`EU_REGULATION_SHARED_DIR`, or `EU_REGULATION_LOG_DIR` to override the defaults. This is
+recommended for collaborators whose Dropbox mount or shared-folder name differs.
+
+### Running the crawlers (reproducible)
+
+```bash
+# optional: use non-default locations on another machine
+export EU_REGULATION_DATA_DIR=/path/to/EU_Regulation/Data
+export EU_REGULATION_SHARED_DIR=/path/to/shared/EU_Regulation
+
+# everything, full download (runs for hours; idempotent & resumable, re-run to continue)
+./full/run_crawlers.sh
+
+# enumerate all sources and write manifests, but download nothing
+./full/run_crawlers.sh --dry-run
+
+# smoke test: at most 10 documents per source/state
+./full/run_crawlers.sh --limit 10
+
+# refresh cached EU/Länder source inventories before resuming downloads
+./full/run_crawlers.sh --refresh-index
+
+# preserve audited EU WAF deferrals instead of retrying them in this run
+./full/run_crawlers.sh --defer-on-waf eu
+
+# periodically re-fetch static constitution URLs that may change in place
+./full/run_crawlers.sh --refresh-existing laender_verfassungen
+
+# only specific crawlers (names: eu, bund, laender_verfassungen, laender_juris,
+# laender_by_bb_sn, laender_hb_ni_nw, laender_assets)
+./full/run_crawlers.sh bund laender_verfassungen
+```
+
+Requirements: Python 3.9+ with `requests`, `beautifulsoup4`, `lxml`. GPL Ghostscript
+(`gs`) is optional for ordinary EU HTML/XHTML retrieval, but required for the rare
+print-only CELLAR acts embedded inside a complete Official Journal PDF. That fallback
+uses authoritative CELLAR page spans plus printed page labels and fails closed instead of
+saving the whole journal as an act if identity or extraction cannot be proved. Per-crawler
+logs are written to the configured shared log directory; per-folder `manifest.json` files
+remain beside the raw data. Downloads and manifests are resumable; re-running reconciles
+valid files already on disk.
+The launcher fans the grouped Länder choices out into one process per state; each process
+writes only to that state's folder. Linked-asset discovery runs afterwards because it
+depends on the completed BY/SN/NW root HTML, and its three state passes then run in parallel.
+
+The dashboard is intentionally shareable without bundling manifests or raw files. Its
+official-source links remain web-accessible, while local manifest links point outward to
+the separate `Projects/EU_Regulation/Data/` tree. Refresh and verify the compact summary
+of that tree with:
+
+```bash
+python3 full/update_dashboard_summary.py
+python3 full/update_dashboard_summary.py --check
+```
+
+The earlier regulation-measurement pipeline is retained under
+`sample/regulation_measurement/`; its preserved datasets are under the legacy data path
+shown above.
+
+The audited 2026-08-05 snapshot contains 19,768 validated EU full-text files for 19,880
+in-force target acts; the remaining 112 targets are explicit, typed EUR-Lex HTTP-202 WAF
+deferrals rather than missing manifest rows. Bund is complete at 6,127/6,127 GII norms.
+The five openly crawlable Länder portals contain 16,147 root or linked-document records,
+with source-side exceptions retained explicitly; ten juris-hosted states have inclusive
+sitemap inventories, and Lower Saxony remains blocked without a trustworthy bulk count.
+`--defer-on-waf` is an EU-only opt-in mode that preserves strict, journal-backed HTTP-202
+WAF records as durable deferrals and journals any newly encountered exact official WAF
+challenge in the same form. On the current snapshot it is a zero-request idempotent run.
+Without the option, the EU crawler retains its normal retry behavior.
+
+Run the crawler regression tests with:
+
+```bash
+python3 -m unittest discover -v -s full/crawlers/tests -p 'test_*.py'
+```
+
+Some official Länder portals prohibit automated document access. The juris-hosted states
+are therefore inventoried only through robots-advertised sitemaps and use manifest status
+`listed_robots_blocked`; Lower Saxony is recorded as blocked because its search path is
+disallowed. A normal full launcher run returns nonzero while these expected source blocks
+remain, instead of falsely reporting a complete download. `--dry-run` is suitable for a
+launcher smoke test. Brandenburg requests a 20-second crawl delay, and EUR-Lex requests
+a 10-second minimum; the EU crawler currently uses a conservative 20-second delay after
+observed WAF challenges. Full compliant runs consequently take hours and should be resumed
+rather than parallelized with duplicate processes.
+
+`laender_assets` inventories and downloads integral PDFs/annexes linked from the saved
+BY/SN/NW root HTML. In a full launcher run it starts as a second phase after the root
+crawlers finish, then runs BY/SN/NW in parallel so attachment discovery cannot race an
+incomplete local corpus.
+
 #### Full text extractor
  Given a list of [CELEX](https://eur-lex.europa.eu/content/help/eurlex-content/celex-number.html) identifiers for EU legislation, the ```eu_rules_fulltext_extractor.py``` script downloads the corresponding documents for the legislation from the [EURLEX](https://eur-lex.europa.eu) website. It stores the files in two folders: one for [HTML](https://www.w3schools.com/html/) documents and one for [PDF](https://docs.fileformat.com/pdf/) documents. Some older documents are only available in PDF format on the website. As a first priority, the script tries to download the HTML version of a document if available (because this format is easier to parse later on). If there is no HTML version available, it extracts the PDF version. If neither the HTML nor PDF versions could be extracted for whatever reason, the script keeps a list of CELEX identifiers which encountered errors when downloading.
 

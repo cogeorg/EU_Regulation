@@ -11,6 +11,13 @@ pdfs/*.pdf
 problems/*.csv
 .DS_Store
 
+# Full-corpus runtime state lives outside the Git checkout.
+/LOGBOOK.md
+/full/data/
+/full/dashboard/
+/full/logs/
+/full/*.docx
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
